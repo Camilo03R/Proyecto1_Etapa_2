@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clasificador de Noticias Falsas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+    }
+    h2 {
+      color: #333;
+    }
+    .card {
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+    }
+    input, textarea, button, select {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .result {
+      margin-top: 10px;
+      padding: 15px;
+      border-radius: 5px;
+    }
+    .real {
+      background-color: #e0f2ff;
+      color: #1a5276;
+    }
+    .falsa {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>Predicción de Noticias</h2>
+    <label for="descripcion">Descripción:</label>
+    <textarea id="descripcion" rows="2"></textarea>
+
+    <label for="titulo">Título:</label>
+    <textarea id="titulo" rows="2"></textarea>
+
+    <button onclick="predecir()">Predecir</button>
+    <div class="result" id="resultado"></div>
+  </div>
+
+  <div class="card">
+    <h2>Reentrenar Modelo</h2>
+    <input type="file" id="csvFile" accept=".csv">
+    <select id="modeloSelect">
+      <option value="naive_bayes">naive_bayes</option>
+      <option value="modelo1">modelo1</option>
+      <option value="modelo2">modelo2</option>
+    </select>
+    <button onclick="reentrenar()">Reentrenar Modelo</button>
+    <div class="result" id="resultadoEntrenamiento"></div>
+  </div>
+
+  <script>
+    async function predecir() {
+      const descripcion = document.getElementById("descripcion").value;
+      const titulo = document.getElementById("titulo").value;
+      const resultado = document.getElementById("resultado");
+      resultado.textContent = "Cargando...";
+
+      const body = {
+        modelo: "naive_bayes",
+        Descripcion: [descripcion],
+        Titulo: [titulo]
+      };
+
+      const response = await fetch("http://127.0.0.1:8000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      const data = await response.json();
+      const pred = data.predicciones[0];
+      const [p0, p1] = data.probabilidades[0];
+
+      // Mostrar mensaje amigable
+      resultado.className = "result " + (pred === 1 ? "falsa" : "real");
+      resultado.innerHTML = `
+        <strong>Resultado:</strong> La noticia parece ser <strong>${pred === 1 ? 'FALSA' : 'REAL'}</strong><br>
+        Probabilidad de ser real: ${(p0 * 100).toFixed(2)}%<br>
+        Probabilidad de ser falsa: ${(p1 * 100).toFixed(2)}%
+      `;
+    }
+
+    async function reentrenar() {
+      const fileInput = document.getElementById("csvFile");
+      const modelo = document.getElementById("modeloSelect").value;
+      const resultado = document.getElementById("resultadoEntrenamiento");
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert("Por favor selecciona un archivo CSV.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async function (event) {
+        const text = event.target.result;
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+
+        const Descripcion = [], Titulo = [], Label = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const [desc, tit, label] = lines[i].split(';');
+          if (desc && tit && label) {
+            Descripcion.push(desc);
+            Titulo.push(tit);
+            Label.push(parseInt(label));
+          }
+        }
+
+        const body = { modelo, Descripcion, Titulo, Label };
+
+        const response = await fetch("http://127.0.0.1:8000/retrain", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+
+        resultado.className = "result real";
+        resultado.innerHTML = `
+          <strong>${data.mensaje}</strong><br>
+          Precisión: ${data.metrics.precision}<br>
+          Recall: ${data.metrics.recall}<br>
+          F1 Score: ${data.metrics.f1_score}
+        `;
+      };
+
+      reader.readAsText(file);
+    }
+  </script>
+</body>
+</html>
+
