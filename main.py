@@ -32,12 +32,10 @@ import pandas as pd
 app = FastAPI(title="Clasificación de noticias falsas")
 
 
-# Configuración CORS
-
 # Esto permite que cualquier frontend (React, HTML, etc.) pueda comunicarse con la API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite peticiones desde cualquier origen
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,11 +46,11 @@ app.add_middleware(
 
 # Se utiliza para mapear los nombres de modelos a sus rutas en disco
 MODELOS = {
-    "naive_bayes": "modelos/naive_bayes.joblib",
-    "modelo1": "modelos/modelo1.joblib",  # Agregado para posibles modelos de tus compañeros
-    "modelo2": "modelos/modelo2.joblib"
+    "naive_bayes": "models/naive_bayes_pipeline.joblib",
+    "logistic_regression": "models/logistic_regression_pipeline.joblib",
+    "random_forest": "models/random_forest_pipeline.joblib",
+    "xgboost": "models/xgboost_pipeline.joblib",
 }
-
 
 # Endpoint raíz de prueba
 
