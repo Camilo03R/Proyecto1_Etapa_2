@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,28 +10,22 @@ from joblib import load, dump
 # Métricas de evaluación
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-# Para dividir los datos en entrenamiento y prueba
-from sklearn.model_selection import train_test_split
-
 # Componentes del pipeline de ML
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 
-# Preprocesador personalizado creado por ti
+# Preprocesador personalizado
 from preprocesamiento import Preprocessor
 
 # Utilidades
 import os
 import pandas as pd
 
-
 # Inicialización de la aplicación FastAPI
-
 app = FastAPI(title="Clasificación de noticias falsas")
 
-
-# Esto permite que cualquier frontend (React, HTML, etc.) pueda comunicarse con la API
+# Permitir acceso desde cualquier frontend (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,18 +34,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # Diccionario de modelos disponibles
-
-# Se utiliza para mapear los nombres de modelos a sus rutas en disco
 MODELOS = {
     "naive_bayes": "models/naive_bayes_pipeline.joblib",
     "logistic_regression": "models/logistic_regression_pipeline.joblib",
     "random_forest": "models/random_forest_pipeline.joblib",
     "xgboost": "models/xgboost_pipeline.joblib",
 }
-
-# Endpoint raíz de prueba
 
 @app.get("/")
 def root():
@@ -61,14 +49,10 @@ def root():
         "modelos_disponibles": list(MODELOS.keys())
     }
 
-
-# Endpoint de predicción
-
 @app.post("/predict")
 def predecir(data: DataModel):
     modelo_id = data.modelo
 
-    # Validación de modelo
     if modelo_id not in MODELOS:
         raise HTTPException(status_code=400, detail="Modelo no soportado")
 
@@ -76,13 +60,10 @@ def predecir(data: DataModel):
     if not os.path.exists(ruta):
         raise HTTPException(status_code=404, detail="Modelo no encontrado en el servidor")
 
-    # Cargar el modelo desde disco
     modelo = load(ruta)
 
-    # Combinar descripción + título en un solo texto
     textos = [desc + " " + tit for desc, tit in zip(data.Descripcion, data.Titulo)]
 
-    # Realizar predicción y probabilidades
     pred = modelo.predict(textos).tolist()
     prob = modelo.predict_proba(textos).tolist()
 
@@ -92,50 +73,76 @@ def predecir(data: DataModel):
         "probabilidades": prob
     }
 
-
-# Endpoint de reentrenamiento
-
 @app.post("/retrain")
 def reentrenar(data: ReentrenamientoModel):
     modelo_id = data.modelo
 
-    # Validar que el modelo esté registrado
     if modelo_id not in MODELOS:
         raise HTTPException(status_code=400, detail="Modelo no soportado")
 
     ruta = MODELOS[modelo_id]
 
     try:
-        # Preparar los textos unificando descripción + título
         textos = [desc + " " + tit for desc, tit in zip(data.Descripcion, data.Titulo)]
         df = pd.DataFrame({'texto': textos, 'Label': data.Label})
 
-        # Dividir en entrenamiento y prueba con estratificación
-        X_train, X_test, y_train, y_test = train_test_split(
-            df['texto'], df['Label'], test_size=0.2, random_state=42, stratify=df['Label']
-        )
+        X = df['texto']
+        y = df['Label']
 
-        # Reconstruir desde cero el pipeline con el preprocesamiento, TF-IDF y clasificador
-        nuevo_pipeline = Pipeline([
-            ('preprocessing', Preprocessor()),
-            ('tfidf', TfidfVectorizer()),
-            ('clf', MultinomialNB())
-        ])
+        modelo = load(ruta)
 
-        # Entrenar el pipeline
-        nuevo_pipeline.fit(X_train, y_train)
+        if modelo_id == "naive_bayes":
+            clases = [0, 1]
+            modelo.named_steps['classifier'].partial_fit(
+                modelo.named_steps['tfidf'].transform(
+                    modelo.named_steps['preprocessing'].transform(X)
+                ),
+                y,
+                classes=clases
+            )
+        else:
+            preprocessor = modelo.named_steps['preprocessing']
+            vectorizer = modelo.named_steps['tfidf']
+            clf_anterior = modelo.named_steps['classifier']
 
-        # Guardar el modelo actualizado
-        dump(nuevo_pipeline, ruta)
+            X_preprocessed = preprocessor.transform(X)
+            X_vect = vectorizer.transform(X_preprocessed)
 
-        # Evaluar métricas sobre conjunto de prueba
-        y_pred = nuevo_pipeline.predict(X_test)
-        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+            if modelo_id == "logistic_regression":
+                from sklearn.linear_model import SGDClassifier
+                if not hasattr(clf_anterior, "partial_fit"):
+                    clf_nuevo = SGDClassifier(loss='log', max_iter=1000, tol=1e-3)
+                    clf_nuevo.partial_fit(X_vect, y, classes=[0, 1])
+                else:
+                    clf_nuevo = clf_anterior
+                    clf_nuevo.partial_fit(X_vect, y, classes=[0, 1])
+
+                modelo.named_steps['classifier'] = clf_nuevo
+
+            elif modelo_id == "xgboost":
+                from xgboost import XGBClassifier
+                params = clf_anterior.get_params()
+                n_estimators_prev = params.get('n_estimators', 70)
+                clf_nuevo = XGBClassifier(**params)
+                clf_nuevo.set_params(n_estimators=n_estimators_prev + 10)
+                clf_nuevo.fit(X_vect, y)
+                modelo.named_steps['classifier'] = clf_nuevo
+
+            elif modelo_id == "random_forest":
+                from sklearn.ensemble import RandomForestClassifier
+                clf_nuevo = RandomForestClassifier(n_estimators=70, max_depth=None)
+                clf_nuevo.fit(X_vect, y)
+                modelo.named_steps['classifier'] = clf_nuevo
+
+        dump(modelo, ruta)
+
+        y_pred = modelo.predict(X)
+        precision = precision_score(y, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y, y_pred, average='weighted', zero_division=0)
+        f1 = f1_score(y, y_pred, average='weighted', zero_division=0)
 
         return {
-            "mensaje": f"Modelo '{modelo_id}' reentrenado y guardado exitosamente",
+            "mensaje": f"Modelo '{modelo_id}' actualizado exitosamente",
             "metrics": {
                 "precision": round(precision, 4),
                 "recall": round(recall, 4),
@@ -144,10 +151,5 @@ def reentrenar(data: ReentrenamientoModel):
         }
 
     except Exception as e:
-        # Si ocurre un error, mostrarlo en consola y enviar mensaje de error al cliente
         print("Error en /retrain:", str(e))
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
-
-
-
-

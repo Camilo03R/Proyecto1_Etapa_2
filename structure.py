@@ -19,4 +19,3 @@ class ReentrenamientoModel(BaseModel):
     Descripcion: List[str]  # Lista de descripciones
     Titulo: List[str]       # Lista de títulos
     Label: List[int]        # Etiquetas correspondientes (0 = falsa, 1 = verdadera)
-

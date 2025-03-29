@@ -75,6 +75,19 @@
   </div>
 
   <div class="card">
+    <h2>Hacer multiples predicciones</h2>
+    <input type="file" id="csvFile" accept=".csv">
+    <select id="modeloPrediccionesSelect">
+      <option value="logistic_regression">logistic_regression</option>
+      <option value="xgboost">xgboost</option>
+      <option value="random_forest">random_forest</option>
+      <option value="naive_bayes">naive_bayes</option>
+    </select>
+    <button onclick="predicciones()">Hacer las predicciones</button>
+    <div class="result" id="resultadoPredicciones"></div>
+  </div>
+
+  <div class="card">
     <h2>Reentrenar Modelo</h2>
     <input type="file" id="csvFile" accept=".csv">
     <select id="modeloSelect">
@@ -124,6 +137,42 @@
       `;
     }
 
+    async function predicciones() {
+      const modelo = document.getElementById("modeloPrediccionesSelect").value;
+      const fileInput = document.getElementById("csvFile");
+      const resultado = document.getElementById("resultadoPredicciones");
+
+      const file = fileInput.files[0];
+      if (!file) {
+        alert("Por favor selecciona un archivo CSV.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const text = event.target.result;
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+
+        const Descripcion = [];
+        const Titulo = [];
+        const Label = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const [_, label, tit, desc] = lines[i].split(';');
+
+          if (desc && tit && label) {
+            Descripcion.push(desc);
+            Titulo.push(tit);
+            Label.push(parseInt(label));
+          }
+        }
+
+        print(Descripcion, Titulo, Label)
+      }
+
+      reader.readAsText(file);
+    }
+
     async function reentrenar() {
       const fileInput = document.getElementById("csvFile");
       const modelo = document.getElementById("modeloSelect").value;
@@ -136,14 +185,17 @@
       }
 
       const reader = new FileReader();
-      reader.onload = async function (event) {
+      reader.onload = async (event) => {
         const text = event.target.result;
         const lines = text.split('\n').filter(line => line.trim() !== '');
 
-        const Descripcion = [], Titulo = [], Label = [];
+        const Descripcion = [];
+        const Titulo = [];
+        const Label = [];
 
         for (let i = 1; i < lines.length; i++) {
-          const [desc, tit, label] = lines[i].split(';');
+          const [_, label, tit, desc] = lines[i].split(';');
+
           if (desc && tit && label) {
             Descripcion.push(desc);
             Titulo.push(tit);
@@ -151,12 +203,20 @@
           }
         }
 
-        const body = { modelo, Descripcion, Titulo, Label };
+        const body = {
+          modelo: modelo,
+          Descripcion,
+          Titulo,
+          Label
+        };
 
         const response = await fetch("http://127.0.0.1:8000/retrain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
+        }).catch(error => {
+          console.error("Error:", error);
+          return;
         });
 
         const data = await response.json();
