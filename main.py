@@ -109,13 +109,10 @@ def reentrenar(data: ReentrenamientoModel):
             X_vect = vectorizer.transform(X_preprocessed)
 
             if modelo_id == "logistic_regression":
-                from sklearn.linear_model import SGDClassifier
-                if not hasattr(clf_anterior, "partial_fit"):
-                    clf_nuevo = SGDClassifier(loss='log', max_iter=1000, tol=1e-3)
-                    clf_nuevo.partial_fit(X_vect, y, classes=[0, 1])
-                else:
-                    clf_nuevo = clf_anterior
-                    clf_nuevo.partial_fit(X_vect, y, classes=[0, 1])
+                from sklearn.linear_model import LogisticRegression
+                params = clf_anterior.get_params()
+                clf_nuevo = LogisticRegression(**params)
+                clf_nuevo.fit(X_vect, y)
 
                 modelo.named_steps['classifier'] = clf_nuevo
 
